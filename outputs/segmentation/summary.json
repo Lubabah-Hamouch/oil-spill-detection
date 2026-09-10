@@ -1,0 +1,7 @@
+{
+  "best_epoch": 20,
+  "best_dice": 0.8899488859885448,
+  "final_dice": 0.8899,
+  "test_iou": 0.8388,
+  "test_dice": 0.9009
+}
