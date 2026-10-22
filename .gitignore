@@ -24,3 +24,22 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Model files (any location)
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+
+# Env variants
+.env.*
+!.env.example
+
+# Tooling / logs
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+*.log
+
+# Local Claude Code settings
+.claude/
