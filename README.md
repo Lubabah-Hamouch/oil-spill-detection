@@ -7,7 +7,23 @@ A deep learning project for industrial oil spill detection using satellite/aeria
 - **Hard Negative Sampling**: Specifically trained on challenging ocean textures like wave foam and coastlines.
 - **3-Zone Labeling**: Clean supervision logic that eliminates ambiguous samples during training.
 - **Semantic Segmentation**: Pixel-level spill delineation using U-Net with ResNet34 backbone.
-- **Dual-Threshold Inference**: Flexible decision logic for identifying "Possible" vs "High Confidence" threats.
+- **Threshold-Based Inference**: A single spill threshold (0.25) decides spill vs. no spill and triggers segmentation; a separate high-confidence band (0.5) only changes the displayed confidence label.
+
+## Demo
+
+Upload an aerial or satellite image patch — the model classifies it, and if a spill looks likely, segments and highlights exactly where.
+
+### Spill detected
+
+![Spill detected](docs/demo-images/screenshot-spill.png)
+
+Input: `docs/demo-images/spill-test.png` (test set sample)
+
+### No spill
+
+![No spill](docs/demo-images/screenshot-no-spill.png)
+
+Input: `docs/demo-images/no-spill-test.jpg`
 
 ## Project Structure
 ```text
@@ -109,6 +125,19 @@ curl -X POST http://127.0.0.1:8000/predict -F "file=@path/to/image.png"
 ```
 
 Errors are JSON `{"detail": "..."}`: `400` for a missing/corrupt image, `413` for files over 20 MB, `500` for inference failures. CORS currently allows all origins and there is no authentication.
+
+## Frontend
+
+A React demo UI (Vite + TypeScript + Tailwind) lives in `frontend/` and calls the API above. With the backend running, in a second terminal:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env   # sets VITE_API_URL (default http://localhost:8000)
+npm run dev
+```
+
+Open http://localhost:5173.
 
 ## Evaluation
 - Detailed metrics (IoU, Dice, F1, Recall) are exported to `outputs/` after training.
