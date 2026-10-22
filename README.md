@@ -25,6 +25,8 @@ Input: `docs/demo-images/spill-test.png` (test set sample)
 
 Input: `docs/demo-images/no-spill-test.jpg`
 
+<sub>Photo via [Unsplash](https://unsplash.com)</sub>
+
 ## Project Structure
 ```text
 project_root/
