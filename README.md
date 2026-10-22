@@ -92,9 +92,9 @@ After placing both datasets, run the build scripts described in Setup to generat
 - Detailed metrics (IoU, Dice, F1, Recall) are exported to `outputs/` after training.
 - Error analysis and visualization tools are available:
   ```bash
-  python src/tools/analyze_errors.py --csv outputs/classification/val_predictions_epoch_1.csv
-  python src/tools/evaluate_thresholds.py --csv outputs/classification/val_predictions_epoch_1.csv
-  python src/tools/visualize_classification.py --csv outputs/classification/val_predictions_epoch_1.csv
+  python src/tools/analyze_errors.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
+  python src/tools/evaluate_thresholds.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
+  python src/tools/visualize_classification.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
   ```
 
 ## Citation

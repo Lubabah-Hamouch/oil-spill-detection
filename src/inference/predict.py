@@ -1,8 +1,7 @@
 import os
 import time
+import logging
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torchvision.transforms as transforms
 import cv2
 import numpy as np
@@ -18,6 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.models.classification import build_classification_model
 from src.models.segmentation import build_segmentation_model
+
+logger = logging.getLogger(__name__)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -79,7 +80,17 @@ def preprocess_image_classification(image):
     return _transform(image).unsqueeze(0).to(device)
 
 # Inference Configuration
-DEFAULT_THRESHOLD = 0.25
+# Probability thresholds (P = predicted spill probability).
+#   THRESHOLD_SPILL               - decision cutoff: P >= this means binary_label=1, a segmentation
+#                                   mask is produced, and the result is labelled a spill.
+#   THRESHOLD_LOW                 - lower bound of "LOW_CONFIDENCE_SPILL". Kept equal to
+#                                   THRESHOLD_SPILL so a spill label always comes with binary_label=1.
+#   THRESHOLD_HIGH_CONFIDENCE     - from here up: "HIGH_CONFIDENCE_SPILL".
+THRESHOLD_SPILL = 0.25
+THRESHOLD_LOW = THRESHOLD_SPILL
+THRESHOLD_HIGH_CONFIDENCE = 0.5
+# Pixel probability above which the segmentation model marks a pixel as spill.
+SEGMENTATION_PIXEL_THRESHOLD = 0.5
 PREDICTION_MODE = "dual"  # Options: "binary", "dual"
 
 def predict(image, mode=PREDICTION_MODE):
@@ -108,12 +119,12 @@ def predict(image, mode=PREDICTION_MODE):
     prob_spill = max(0.0, min(1.0, prob_spill))
     
     # 3. SINGLE THRESHOLD LOGIC (binary)
-    binary_label = 1 if prob_spill >= DEFAULT_THRESHOLD else 0
+    binary_label = 1 if prob_spill >= THRESHOLD_SPILL else 0
     
     # 4. IMPROVED CONFIDENCE LABEL NAMING
-    if prob_spill >= 0.5:
+    if prob_spill >= THRESHOLD_HIGH_CONFIDENCE:
         confidence_label = "HIGH_CONFIDENCE_SPILL"
-    elif prob_spill >= 0.2:
+    elif prob_spill >= THRESHOLD_LOW:
         confidence_label = "LOW_CONFIDENCE_SPILL"
     else:
         confidence_label = "NO_SPILL"
@@ -130,26 +141,35 @@ def predict(image, mode=PREDICTION_MODE):
         return label, round(prob_spill * 100, 2)
 
 def load_segmentation_models():
+    """Load segmentation checkpoints. Raises if the checkpoint exists but cannot be loaded."""
     models = {}
-    
-    # New single robust segmentation model
+
     model_path = os.path.join(MODEL_DIR, "segmentation_best.pth")
-    if os.path.exists(model_path):
-        try:
-            model = build_segmentation_model().to(device)
-            checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                model.load_state_dict(checkpoint["model_state_dict"], strict=True)
-            else:
-                model.load_state_dict(checkpoint, strict=True)
-            model.eval()
-            models["UNet_ResNet34"] = model
-        except Exception as e:
-            print(f"Warning: Failed to load segmentation model: {e}")
-            
+    if not os.path.exists(model_path):
+        logger.warning("Segmentation checkpoint not found at %s; segmentation disabled.", model_path)
+        return models
+
+    model = build_segmentation_model().to(device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    else:
+        model.load_state_dict(checkpoint, strict=True)
+    model.eval()
+    models["UNet_ResNet34"] = model
     return models
 
-segmentation_models = load_segmentation_models()
+# Thread-safe lazy loading (loaded once on first call, not at import)
+_segmentation_models = None
+_segmentation_lock = threading.Lock()
+
+def get_segmentation_models():
+    global _segmentation_models
+    if _segmentation_models is None:
+        with _segmentation_lock:
+            if _segmentation_models is None:
+                _segmentation_models = load_segmentation_models()
+    return _segmentation_models
 
 def preprocess_image_segmentation(image):
     if isinstance(image, Image.Image):
@@ -160,62 +180,67 @@ def preprocess_image_segmentation(image):
     image = (image - mean) / std
     return torch.tensor(image).permute(2, 0, 1).unsqueeze(0).float()
 
-def segment_image(image, model_name):
-    print("SEGMENT START")
-    
+def segment_image(image, model_name, spill_detected=True):
+    """Segment a spill and return (RGB overlay uint8, status string).
+
+    The input is treated as RGB throughout (PIL / Gradio convention), so the overlay is
+    returned as RGB with no channel reordering. If spill_detected is False the original
+    image is returned unchanged with a "No spill detected" status.
+    """
     # Prepare original image as RGB uint8
     if isinstance(image, Image.Image):
-        original = np.array(image)
+        original = np.array(image.convert("RGB"))
     else:
-        original = image.copy()
-    
+        original = np.array(image)
+
     # Ensure (H, W, 3) uint8
     if len(original.shape) == 2:
         original = cv2.cvtColor(original, cv2.COLOR_GRAY2RGB)
     elif original.shape[2] == 4:
         original = cv2.cvtColor(original, cv2.COLOR_RGBA2RGB)
     original = original.astype(np.uint8)
-    
+
+    if not spill_detected:
+        return original, "No spill detected"
+
     try:
+        segmentation_models = get_segmentation_models()
         if model_name not in segmentation_models:
-            print("SEGMENT DONE")
             return original, "Model not available"
-        
+
         model = segmentation_models[model_name]
         original_size = original.shape[:2]
-        
+
         # Resize input BEFORE model
         resized = cv2.resize(original, (224, 224))
-        
+
         image_tensor = preprocess_image_segmentation(resized)
         image_tensor = image_tensor.to(device)
-        
-        start_time = time.time()
+
+        start_time = time.perf_counter()
         with torch.no_grad():
             outputs = model(image_tensor)
             probs = torch.sigmoid(outputs)
-            pred_mask = (probs > 0.5).int().squeeze().cpu().numpy()
-        inference_time = time.time() - start_time
-        print(f"Segmentation inference time: {inference_time:.4f}s")
-        
-        pred_mask = cv2.resize(pred_mask.astype(np.uint8), 
-                              (original_size[1], original_size[0]), 
+            pred_mask = (probs > SEGMENTATION_PIXEL_THRESHOLD).int().squeeze().cpu().numpy()
+        logger.debug("Segmentation inference time: %.4fs", time.perf_counter() - start_time)
+
+        pred_mask = cv2.resize(pred_mask.astype(np.uint8),
+                              (original_size[1], original_size[0]),
                               interpolation=cv2.INTER_NEAREST)
-        
-        # Create overlay
-        mask_rgba = np.zeros_like(original, dtype=np.uint8)
-        mask_rgba[pred_mask == 1] = [255, 0, 0]
-        overlay = cv2.addWeighted(original, 1.0, mask_rgba, 0.4, 0)
-        overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
-        
-        print("SEGMENT DONE")
+
+        # Overlay: original is RGB, so [255, 0, 0] is red. Result stays RGB.
+        mask_rgb = np.zeros_like(original, dtype=np.uint8)
+        mask_rgb[pred_mask == 1] = [255, 0, 0]
+        overlay = cv2.addWeighted(original, 1.0, mask_rgb, 0.4, 0)
+
         return overlay.astype(np.uint8), "Success"
-        
+
     except Exception as e:
-        print(f"Segmentation error: {e}")
-        print("SEGMENT DONE")
+        logger.exception("Segmentation failed")
         return original, f"Error: {e}"
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     import argparse
     import json
     from pathlib import Path
@@ -223,6 +248,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Predict oil spill in image.")
     parser.add_argument("--image", type=str, required=True, help="Path to input image.")
     parser.add_argument("--mode", type=str, default="dual", choices=["binary", "dual"], help="Inference mode.")
+    parser.add_argument("--save-overlay", type=str, default=None, help="If a spill is predicted, save the segmentation overlay (RGB) to this path.")
     
     args = parser.parse_args()
     
@@ -235,5 +261,15 @@ if __name__ == "__main__":
             result = predict(img, mode=args.mode)
             print("\nPrediction Result:")
             print(json.dumps(result, indent=4))
+
+            if args.save_overlay:
+                spill = result["binary_label"] == 1 if args.mode == "dual" else result[0] == CLASS_NAMES[1]
+                models = get_segmentation_models()
+                model_name = next(iter(models), None)
+                overlay, status = segment_image(img, model_name, spill_detected=spill)
+                print(f"Segmentation status: {status}")
+                if status == "Success":
+                    cv2.imwrite(args.save_overlay, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))  # cv2 writes BGR
+                    print(f"Overlay saved to {args.save_overlay}")
         except Exception as e:
             print(f"Error processing image: {e}")
