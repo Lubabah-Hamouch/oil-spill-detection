@@ -171,6 +171,10 @@ def get_segmentation_models():
                 _segmentation_models = load_segmentation_models()
     return _segmentation_models
 
+def models_loaded():
+    """True once both the classifier and the segmentation loader have run."""
+    return _model is not None and _segmentation_models is not None
+
 def preprocess_image_segmentation(image):
     if isinstance(image, Image.Image):
         image = np.array(image)
@@ -180,8 +184,11 @@ def preprocess_image_segmentation(image):
     image = (image - mean) / std
     return torch.tensor(image).permute(2, 0, 1).unsqueeze(0).float()
 
-def segment_image(image, model_name, spill_detected=True):
-    """Segment a spill and return (RGB overlay uint8, status string).
+def segment_image_with_mask(image, model_name, spill_detected=True):
+    """Segment a spill and return (RGB overlay uint8, status string, mask or None).
+
+    mask is an (H, W) uint8 array at the input resolution (1 = spill), or None unless
+    status == "Success".
 
     The input is treated as RGB throughout (PIL / Gradio convention), so the overlay is
     returned as RGB with no channel reordering. If spill_detected is False the original
@@ -201,12 +208,12 @@ def segment_image(image, model_name, spill_detected=True):
     original = original.astype(np.uint8)
 
     if not spill_detected:
-        return original, "No spill detected"
+        return original, "No spill detected", None
 
     try:
         segmentation_models = get_segmentation_models()
         if model_name not in segmentation_models:
-            return original, "Model not available"
+            return original, "Model not available", None
 
         model = segmentation_models[model_name]
         original_size = original.shape[:2]
@@ -233,11 +240,17 @@ def segment_image(image, model_name, spill_detected=True):
         mask_rgb[pred_mask == 1] = [255, 0, 0]
         overlay = cv2.addWeighted(original, 1.0, mask_rgb, 0.4, 0)
 
-        return overlay.astype(np.uint8), "Success"
+        return overlay.astype(np.uint8), "Success", pred_mask
 
     except Exception as e:
         logger.exception("Segmentation failed")
-        return original, f"Error: {e}"
+        return original, f"Error: {e}", None
+
+
+def segment_image(image, model_name, spill_detected=True):
+    """Segment a spill and return (RGB overlay uint8, status string)."""
+    overlay, status, _ = segment_image_with_mask(image, model_name, spill_detected)
+    return overlay, status
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

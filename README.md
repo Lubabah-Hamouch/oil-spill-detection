@@ -88,6 +88,28 @@ After placing both datasets, run the build scripts described in Setup to generat
    python src/inference/app.py
    ```
 
+## API
+
+A FastAPI service wraps the inference code (models load once at startup). Run from the project root:
+
+```bash
+uvicorn src.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Interactive docs are served at http://127.0.0.1:8000/docs. The Gradio app uses port 7861, so the two don't collide.
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | API name, version and docs link |
+| `GET /health` | `{"status": "ok", "models_loaded": true}` |
+| `POST /predict` | multipart upload (`file`); returns `probability`, `binary_label`, `confidence_label`, `spill_detected`, `segmentation_status`, and, when a spill is predicted, `overlay_png_base64` and `area_percentage` |
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict -F "file=@path/to/image.png"
+```
+
+Errors are JSON `{"detail": "..."}`: `400` for a missing/corrupt image, `413` for files over 20 MB, `500` for inference failures. CORS currently allows all origins and there is no authentication.
+
 ## Evaluation
 - Detailed metrics (IoU, Dice, F1, Recall) are exported to `outputs/` after training.
 - Error analysis and visualization tools are available:
