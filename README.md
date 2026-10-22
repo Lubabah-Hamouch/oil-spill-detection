@@ -179,3 +179,15 @@ If you use this project, please consider citing the datasets it depends on:
   month = {mar}
 }
 ```
+
+## Licenses & Attribution
+
+**Code**: MIT License (see [LICENSE](LICENSE)).
+
+**Model weights**: the trained weights are derived from the datasets below and are made available for research and non-commercial use. If you plan to use them commercially, check the licensing terms of the underlying datasets and the ImageNet-pretrained backbones used during training.
+
+**Training data**:
+- **LADOS** — Gkountakos, K.; Melitou, M.; Ioannidis, K.; Demestichas, K.; Vrochidis, S.; Kompatsiaris, I. "LADOS: Aerial Imagery Dataset for Oil Spill Detection, Classification, and Localization Using Semantic Segmentation." *Data* 2025, 10(7), 117. https://doi.org/10.3390/data10070117 — licensed CC BY 4.0.
+- **Roboflow "Oil Spill Detection" dataset** — licensed CC BY 4.0.
+
+**Demo image**: the "no spill" demo photo is sourced from [Unsplash](https://unsplash.com).
