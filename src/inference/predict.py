@@ -91,6 +91,8 @@ THRESHOLD_LOW = THRESHOLD_SPILL
 THRESHOLD_HIGH_CONFIDENCE = 0.5
 # Pixel probability above which the segmentation model marks a pixel as spill.
 SEGMENTATION_PIXEL_THRESHOLD = 0.5
+# Overlay mask colour (RGB): amber #F59E0B, matching the frontend's spill colour.
+OVERLAY_COLOR_RGB = (245, 158, 11)
 PREDICTION_MODE = "dual"  # Options: "binary", "dual"
 
 def predict(image, mode=PREDICTION_MODE):
@@ -235,9 +237,9 @@ def segment_image_with_mask(image, model_name, spill_detected=True):
                               (original_size[1], original_size[0]),
                               interpolation=cv2.INTER_NEAREST)
 
-        # Overlay: original is RGB, so [255, 0, 0] is red. Result stays RGB.
+        # Overlay: original is RGB, so the mask colour is given as RGB too. Result stays RGB.
         mask_rgb = np.zeros_like(original, dtype=np.uint8)
-        mask_rgb[pred_mask == 1] = [255, 0, 0]
+        mask_rgb[pred_mask == 1] = OVERLAY_COLOR_RGB
         overlay = cv2.addWeighted(original, 1.0, mask_rgb, 0.4, 0)
 
         return overlay.astype(np.uint8), "Success", pred_mask

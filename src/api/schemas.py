@@ -10,7 +10,7 @@ class PredictResponse(BaseModel):
     spill_detected: bool = Field(..., description="True when binary_label == 1.")
     segmentation_status: str = Field(..., description="'Success', 'No spill detected' or 'Model not available'.")
     overlay_png_base64: Optional[str] = Field(
-        None, description="Base64-encoded PNG of the input with the spill mask in red. Null if segmentation did not run."
+        None, description="Base64-encoded PNG of the input with the spill mask in amber. Null if segmentation did not run."
     )
     area_percentage: Optional[float] = Field(
         None, description="Percent of image pixels flagged as spill. Null if segmentation did not run."
