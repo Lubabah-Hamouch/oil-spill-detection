@@ -39,7 +39,7 @@ project_root/
 ├── scripts/        # Utility & download scripts
 ├── data/           # (Ignored) Raw datasets & generated splits
 ├── models/         # (Ignored) Trained .pth checkpoints
-├── outputs/        # (Ignored) Metrics, logs & visualizations
+├── outputs/        # Metrics & visualizations (per-epoch prediction CSVs are ignored)
 ├── requirements.txt
 └── README.md
 ```
@@ -145,9 +145,9 @@ Open http://localhost:5173.
 - Detailed metrics (IoU, Dice, F1, Recall) are exported to `outputs/` after training.
 - Error analysis and visualization tools are available:
   ```bash
-  python src/tools/analyze_errors.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
-  python src/tools/evaluate_thresholds.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
-  python src/tools/visualize_classification.py --csv outputs/classification/classification/val_predictions_epoch_1.csv
+  python src/tools/analyze_errors.py --csv outputs/classification/val_predictions_epoch_1.csv
+  python src/tools/evaluate_thresholds.py --csv outputs/classification/val_predictions_epoch_1.csv
+  python src/tools/visualize_classification.py --csv outputs/classification/val_predictions_epoch_1.csv
   ```
 
 ## Citation
