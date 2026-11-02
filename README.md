@@ -1,12 +1,3 @@
----
-title: Oil Spill Detection
-emoji: 🛢️
-colorFrom: blue
-colorTo: yellow
-sdk: docker
-app_port: 7860
----
-
 # Oil Spill Detection System
 
 A deep learning project for industrial oil spill detection using satellite/aerial imagery. This system provides both **Classification** (detecting if a patch contains oil) and **Segmentation** (pixel-level masking of the spill).

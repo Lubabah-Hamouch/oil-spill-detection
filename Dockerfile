@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=7860
 
-# Hugging Face Spaces runs containers as uid 1000; give it a home for the torch / HF hub caches.
+# Run as an unprivileged user, with a home directory for any library caches.
 RUN useradd --create-home --uid 1000 user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
