@@ -11,6 +11,12 @@ app_port: 7860
 
 A deep learning project for industrial oil spill detection using satellite/aerial imagery. This system provides both **Classification** (detecting if a patch contains oil) and **Segmentation** (pixel-level masking of the spill).
 
+## Live Demo
+
+**[oil-spill-detection-vmsd.onrender.com](https://oil-spill-detection-vmsd.onrender.com)**
+
+Hosted on a free tier, so the first request after a period of inactivity may take 10–30 seconds while the server wakes up.
+
 ## Features
 - **Binary Classification**: Robustly differentiates oil spills from clean ocean textures using MobileNetV3-Large.
 - **Hard Negative Sampling**: Specifically trained on challenging ocean textures like wave foam and coastlines.
