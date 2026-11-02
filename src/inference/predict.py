@@ -25,7 +25,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CLASS_NAMES = ["No Spill", "Spill"]
 
 def get_model_directory():
-    # Attempt to locate models relative to this script
+    # An explicit MODEL_DIR environment variable wins
+    env_dir = os.environ.get("MODEL_DIR")
+    if env_dir:
+        return env_dir
+    # Otherwise attempt to locate models relative to this script
     script_dir = Path(__file__).parent.parent.parent.absolute()
     possible_paths = [
         script_dir / "models",
@@ -38,20 +42,34 @@ def get_model_directory():
 
 MODEL_DIR = get_model_directory()
 
+def _load_checkpoint_model(build, model_path):
+    """Build a model and load its checkpoint without ever holding two copies of the weights.
+
+    The model is built on the meta device (no memory for a throwaway random init) and the checkpoint
+    is memory-mapped, so the parameters are assigned straight from the mapped file rather than
+    copied out of a temporary state_dict.
+    """
+    with torch.device("meta"):
+        model = build()
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=True, mmap=True)
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+    else:
+        # Fallback for old models
+        state_dict = checkpoint
+    model.load_state_dict(state_dict, strict=True, assign=True)
+    # strict=True does not cover non-persistent buffers; anything left on meta was never loaded.
+    missing = [n for n, t in list(model.named_parameters()) + list(model.named_buffers()) if t.is_meta]
+    if missing:
+        raise RuntimeError(f"Checkpoint {model_path} did not provide: {missing}")
+    return model.to(device).eval()
+
 def load_production_model():
     model_path = os.path.join(MODEL_DIR, "classification_best.pth")
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Production model not found at {model_path}")
-        
-    model = build_classification_model(pretrained=False).to(device)
-    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"], strict=True)
-    else:
-        # Fallback for old models
-        model.load_state_dict(checkpoint, strict=True)
-    model.eval()
-    return model
+
+    return _load_checkpoint_model(lambda: build_classification_model(pretrained=False), model_path)
 
 # Thread-safe lazy model loading
 _model = None
@@ -93,6 +111,11 @@ THRESHOLD_HIGH_CONFIDENCE = 0.5
 SEGMENTATION_PIXEL_THRESHOLD = 0.5
 # Overlay mask colour (RGB): amber #F59E0B, matching the frontend's spill colour.
 OVERLAY_COLOR_RGB = (245, 158, 11)
+OVERLAY_ALPHA = 0.4
+# The overlay is original + OVERLAY_ALPHA * colour on spill pixels (saturating). Precomputed as an
+# integer offset so it can be added in place; matches cv2.addWeighted's rounding as long as no
+# channel lands on exactly .5 (true for this colour: 98, 63.2, 4.4).
+OVERLAY_OFFSET_RGB = tuple(round(OVERLAY_ALPHA * c) for c in OVERLAY_COLOR_RGB)
 PREDICTION_MODE = "dual"  # Options: "binary", "dual"
 
 def predict(image, mode=PREDICTION_MODE):
@@ -142,26 +165,24 @@ def predict(image, mode=PREDICTION_MODE):
         label = CLASS_NAMES[binary_label]
         return label, round(prob_spill * 100, 2)
 
+SEGMENTATION_MODEL_NAME = "UNet_ResNet34"
+SEGMENTATION_MODEL_PATH = os.path.join(MODEL_DIR, "segmentation_best.pth")
+
 def load_segmentation_models():
     """Load segmentation checkpoints. Raises if the checkpoint exists but cannot be loaded."""
     models = {}
 
-    model_path = os.path.join(MODEL_DIR, "segmentation_best.pth")
-    if not os.path.exists(model_path):
-        logger.warning("Segmentation checkpoint not found at %s; segmentation disabled.", model_path)
+    if not os.path.exists(SEGMENTATION_MODEL_PATH):
+        logger.warning("Segmentation checkpoint not found at %s; segmentation disabled.", SEGMENTATION_MODEL_PATH)
         return models
 
-    model = build_segmentation_model().to(device)
-    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
-    model.eval()
-    models["UNet_ResNet34"] = model
+    # No ImageNet encoder weights: the trained checkpoint replaces every encoder weight anyway.
+    models[SEGMENTATION_MODEL_NAME] = _load_checkpoint_model(
+        lambda: build_segmentation_model(encoder_weights=None), SEGMENTATION_MODEL_PATH
+    )
     return models
 
-# Thread-safe lazy loading (loaded once on first call, not at import)
+# Thread-safe lazy loading (loaded on first call, not at import or startup: only spill images need it)
 _segmentation_models = None
 _segmentation_lock = threading.Lock()
 
@@ -173,9 +194,22 @@ def get_segmentation_models():
                 _segmentation_models = load_segmentation_models()
     return _segmentation_models
 
+def unload_segmentation_models():
+    """Drop the segmentation model; the next get_segmentation_models() call reloads it.
+
+    The caller must make sure no other thread is still running segmentation.
+    """
+    global _segmentation_models
+    with _segmentation_lock:
+        _segmentation_models = None
+
+def segmentation_available():
+    """True if a segmentation checkpoint exists, without loading it."""
+    return os.path.exists(SEGMENTATION_MODEL_PATH)
+
 def models_loaded():
-    """True once both the classifier and the segmentation loader have run."""
-    return _model is not None and _segmentation_models is not None
+    """True once the classifier is loaded. The segmentation model loads on demand (first spill image)."""
+    return _model is not None
 
 def preprocess_image_segmentation(image):
     if isinstance(image, Image.Image):
@@ -196,9 +230,10 @@ def segment_image_with_mask(image, model_name, spill_detected=True):
     returned as RGB with no channel reordering. If spill_detected is False the original
     image is returned unchanged with a "No spill detected" status.
     """
-    # Prepare original image as RGB uint8
+    # Prepare original image as RGB uint8. np.array always copies, so the overlay can later be
+    # drawn into `original` in place without touching the caller's image.
     if isinstance(image, Image.Image):
-        original = np.array(image.convert("RGB"))
+        original = np.array(image if image.mode == "RGB" else image.convert("RGB"))
     else:
         original = np.array(image)
 
@@ -207,7 +242,7 @@ def segment_image_with_mask(image, model_name, spill_detected=True):
         original = cv2.cvtColor(original, cv2.COLOR_GRAY2RGB)
     elif original.shape[2] == 4:
         original = cv2.cvtColor(original, cv2.COLOR_RGBA2RGB)
-    original = original.astype(np.uint8)
+    original = original.astype(np.uint8, copy=False)
 
     if not spill_detected:
         return original, "No spill detected", None
@@ -237,12 +272,12 @@ def segment_image_with_mask(image, model_name, spill_detected=True):
                               (original_size[1], original_size[0]),
                               interpolation=cv2.INTER_NEAREST)
 
-        # Overlay: original is RGB, so the mask colour is given as RGB too. Result stays RGB.
-        mask_rgb = np.zeros_like(original, dtype=np.uint8)
-        mask_rgb[pred_mask == 1] = OVERLAY_COLOR_RGB
-        overlay = cv2.addWeighted(original, 1.0, mask_rgb, 0.4, 0)
+        # Overlay drawn in place: original is RGB, so the offset is RGB too and the result stays RGB.
+        # Same pixels as cv2.addWeighted(original, 1.0, colour_mask, OVERLAY_ALPHA, 0), without
+        # allocating two more full-resolution images.
+        cv2.add(original, OVERLAY_OFFSET_RGB + (0,), dst=original, mask=pred_mask)
 
-        return overlay.astype(np.uint8), "Success", pred_mask
+        return original, "Success", pred_mask
 
     except Exception as e:
         logger.exception("Segmentation failed")

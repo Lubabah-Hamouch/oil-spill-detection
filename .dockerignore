@@ -1,0 +1,23 @@
+.git/
+data/
+.venv/
+venv/
+env/
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+outputs/
+
+# Built inside the image instead
+frontend/dist/
+# Weights are downloaded from the GitHub release during the build
+models/
+
+# Local env files must not leak into the build (a VITE_API_URL here would be baked into the UI)
+**/.env
+**/.env.*
+!**/.env.example
+
+.vscode/
+.idea/
+docs/

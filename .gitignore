@@ -1,12 +1,12 @@
 # Data
-data/raw/
-data/splits/
+data/
 
 # Models & Weights
 models/*.pth
 
 # Outputs 
 outputs/**/*epoch*.csv
+outputs/pipeline_build/
 
 # Python
 __pycache__/
