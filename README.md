@@ -56,7 +56,7 @@ project_root/
 |---|---|---|---|
 | Classification | Accuracy | 92.51% (best epoch) | 92.79% |
 | Classification | F1-Score | 0.9266 (best epoch) | 0.9285 |
-| Segmentation | Dice | 0.8899 (best epoch) | 90.09% |
+| Segmentation | Dice | 88.99% (best epoch) | 90.09% |
 | Segmentation | IoU | - | 83.88% |
 
 Training curves, confusion matrix, and segmentation prediction samples are available in `outputs/classification/` and `outputs/segmentation/`.
