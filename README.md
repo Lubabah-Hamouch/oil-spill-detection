@@ -55,7 +55,7 @@ project_root/
 | Task | Metric | Validation | Test |
 |---|---|---|---|
 | Classification | Accuracy | 92.51% (best epoch) | 92.79% |
-| Classification | F1-Score | 0.9266 (best epoch) | 0.9285 |
+| Classification | F1-Score | 92.66% (best epoch) | 92.85% |
 | Segmentation | Dice | 88.99% (best epoch) | 90.09% |
 | Segmentation | IoU | - | 83.88% |
 
