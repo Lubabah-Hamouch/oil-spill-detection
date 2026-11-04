@@ -4,9 +4,9 @@ A deep learning project for industrial oil spill detection using satellite/aeria
 
 ## Live Demo
 
-**[oil-spill-detection-vmsd.onrender.com](https://oil-spill-detection-vmsd.onrender.com)**
+**[oil-spill-detection-bdg1.onrender.com](https://oil-spill-detection-bdg1.onrender.com)**
 
-Hosted on a free tier, so the first request after a period of inactivity may take 10–30 seconds while the server wakes up.
+The page loads right away. The analysis backend runs on a free tier and sleeps after about 15 minutes without traffic, so on a first visit a "waking up the server" banner may show for up to a minute; image analysis is available once it clears. See [Deployment](#deployment).
 
 ## Features
 - **Binary Classification**: Robustly differentiates oil spills from clean ocean textures using MobileNetV3-Large.
@@ -36,7 +36,9 @@ Input: `docs/demo-images/no-spill-test.jpg`
 ## Project Structure
 ```text
 project_root/
+├── frontend/       # React demo UI (deployed as a Render Static Site)
 ├── src/
+│   ├── api/        # FastAPI service (deployed as a Render web service)
 │   ├── data/       # Data preparation & split scripts
 │   ├── models/     # Model architectures
 │   ├── training/   # Model training pipelines
@@ -114,7 +116,7 @@ After placing both datasets, run the build scripts described in Setup to generat
 
 ## API
 
-A FastAPI service wraps the inference code (models load once at startup). Run from the project root:
+A FastAPI service wraps the inference code. The classification model loads at startup; the segmentation model loads on the first image classified as a likely spill. Run from the project root:
 
 ```bash
 uvicorn src.api.main:app --host 127.0.0.1 --port 8000
@@ -132,7 +134,7 @@ Interactive docs are served at http://127.0.0.1:8000/docs. The Gradio app uses p
 curl -X POST http://127.0.0.1:8000/predict -F "file=@path/to/image.png"
 ```
 
-Errors are JSON `{"detail": "..."}`: `400` for a missing/corrupt image, `413` for files over 20 MB, `500` for inference failures. CORS currently allows all origins and there is no authentication.
+Errors are JSON `{"detail": "..."}`: `400` for a missing/corrupt image, `413` for files over 20 MB, `500` for inference failures. There is no authentication. CORS origins come from the `ALLOWED_ORIGINS` environment variable (comma-separated, no trailing slashes); when it is unset, all origins are allowed.
 
 ## Frontend
 
@@ -141,11 +143,28 @@ A React demo UI (Vite + TypeScript + Tailwind) lives in `frontend/` and calls th
 ```bash
 cd frontend
 npm install
-cp .env.example .env   # sets VITE_API_URL (default http://localhost:8000)
+cp .env.example .env   # sets VITE_API_URL=http://localhost:8000 (required)
 npm run dev
 ```
 
 Open http://localhost:5173.
+
+On load, the UI polls the backend's `GET /health` until it answers. Until then it shows a "waking up the server" banner and keeps the Analyze button disabled; the rest of the page is usable straight away.
+
+For a production build, set `VITE_API_URL` to the backend's public URL before running `npm run build`. It is read at build time and baked into the bundle. It is required: without it the UI throws on load instead of falling back to a URL that can't reach the API.
+
+## Deployment
+
+The live demo runs as two Render services built from this repository:
+
+| Service | Render type | URL | Configuration |
+|---|---|---|---|
+| Frontend | Static Site, root `frontend/`, build command `npm install && npm run build`, publish directory `dist` | https://oil-spill-detection-bdg1.onrender.com | `VITE_API_URL=https://oil-spill-detection-vmsd.onrender.com` (build-time) |
+| Backend (`oil-spill-detection-api`) | Docker web service, built from the root `Dockerfile` | https://oil-spill-detection-vmsd.onrender.com | `ALLOWED_ORIGINS=https://oil-spill-detection-bdg1.onrender.com` (no trailing slash) |
+
+The frontend URL is the one to share. The static site is always available; the backend is on Render's free tier, so it spins down after about 15 minutes idle and can take up to a minute to start again on the next request. The frontend's health polling covers that wait: only image analysis is held back until the backend responds, never the page itself.
+
+The Docker image contains only the API; the frontend is not part of it.
 
 ## Evaluation
 - Detailed metrics (IoU, Dice, F1, Recall) are exported to `outputs/` after training.

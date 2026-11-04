@@ -1,9 +1,10 @@
-// VITE_API_URL wins when set. Otherwise the dev server (separate port) defaults to the local API,
-// and a production build uses relative URLs ("/predict") because the API serves the UI from the same origin.
-const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "")).replace(
-  /\/+$/,
-  "",
-);
+// Base URL of the backend, baked in at build time (see frontend/.env.example). There is no fallback:
+// the UI is never served from the API's origin, so without it no request could reach the API.
+const RAW_API_URL = import.meta.env.VITE_API_URL?.trim();
+if (!RAW_API_URL) {
+  throw new Error("VITE_API_URL must be set at build time (e.g. http://localhost:8000 for local dev).");
+}
+const API_URL = RAW_API_URL.replace(/\/+$/, "");
 
 export type ConfidenceLabel = "NO_SPILL" | "LOW_CONFIDENCE_SPILL" | "HIGH_CONFIDENCE_SPILL";
 

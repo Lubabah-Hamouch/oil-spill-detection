@@ -12,7 +12,6 @@ import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
 # Add project root to path
@@ -31,8 +30,6 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # Uploads whose longer side exceeds this are downscaled (aspect ratio kept) right after decoding.
 # Both models run at 224x224, so this only bounds the full-resolution buffers (decode, overlay, PNG).
 MAX_IMAGE_SIDE = 2000
-# Built React UI (frontend/dist after `npm run build`). Served at "/" only if it exists.
-FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 # Comma-separated list of allowed CORS origins; "*" (any origin) when unset.
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 # "1" frees the segmentation model after every request that used it (lower idle memory, slower spill
@@ -101,11 +98,9 @@ def _capped_size(size: tuple[int, int]) -> tuple[int, int]:
     return max(1, round(width * scale)), max(1, round(height * scale))
 
 
-if not FRONTEND_DIST.is_dir():
-    # API-only mode: "/" describes the API. When the built UI exists, "/" serves it instead (see bottom).
-    @app.get("/", response_model=RootResponse)
-    def root():
-        return RootResponse(name=API_NAME, version=API_VERSION, docs="/docs")
+@app.get("/", response_model=RootResponse)
+def root():
+    return RootResponse(name=API_NAME, version=API_VERSION, docs="/docs")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -173,8 +168,3 @@ def predict(file: UploadFile = File(..., description="Image file (PNG, JPEG, ...
         overlay_png_base64=overlay_b64,
         area_percentage=area_percentage,
     )
-
-
-# Mounted last so the API routes above (/health, /predict, /docs) take precedence over the catch-all "/".
-if FRONTEND_DIST.is_dir():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

@@ -1,13 +1,4 @@
-# ---- Stage 1: build the React frontend ----
-FROM node:22-slim AS frontend
-WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-# VITE_API_URL is deliberately unset: the built UI calls the API on the same origin ("/predict").
-RUN npm run build
-
-# ---- Stage 2: Python API serving the model and the built UI ----
+# Python API serving the models. The frontend is built and deployed separately (see README, Deployment).
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -29,7 +20,6 @@ RUN pip install $(grep -E '^(torch|torchvision)==' requirements.txt) \
 
 COPY src/ src/
 COPY scripts/ scripts/
-COPY --from=frontend /frontend/dist frontend/dist
 RUN chown -R user:user /app
 
 USER user
