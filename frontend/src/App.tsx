@@ -1,15 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, predict } from "./api/client";
+import { ApiError, checkHealth, predict } from "./api/client";
 import Footer from "./components/Footer";
 import Header from "./components/Header";
 import ResultPanel, { type AnalysisState } from "./components/ResultPanel";
+import ServerStatusBanner, { type BackendStatus } from "./components/ServerStatusBanner";
 import UploadZone from "./components/UploadZone";
+
+// Delay between health checks while the backend is asleep or starting up.
+const HEALTH_POLL_INTERVAL_MS = 3500;
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisState>({ status: "idle" });
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const abortRef = useRef<AbortController | null>(null);
+
+  // Poll /health until the backend answers. The page renders regardless; only analysis waits on it.
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: number | undefined;
+
+    async function poll() {
+      const ok = await checkHealth(controller.signal);
+      if (controller.signal.aborted) return;
+      if (ok) {
+        setBackendStatus("ready");
+        return;
+      }
+      setBackendStatus("waking");
+      timer = window.setTimeout(poll, HEALTH_POLL_INTERVAL_MS);
+    }
+
+    poll();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   // Create/revoke the object URL for the preview.
   useEffect(() => {
@@ -51,10 +79,12 @@ export default function App() {
   }
 
   const loading = analysis.status === "loading";
+  const backendReady = backendStatus === "ready";
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
+      <ServerStatusBanner status={backendStatus} />
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-10 sm:px-8">
         <div className="mb-8 max-w-xl">
@@ -77,7 +107,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleAnalyze}
-              disabled={!file || loading}
+              disabled={!file || loading || !backendReady}
               className="w-full rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-canvas transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:cursor-not-allowed disabled:bg-elevated disabled:text-ink-muted"
             >
               {loading ? "Analyzing…" : "Analyze image"}

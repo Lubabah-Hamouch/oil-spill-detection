@@ -41,6 +41,28 @@ async function readErrorDetail(res: Response): Promise<string | null> {
   }
 }
 
+// A sleeping backend may accept the connection and never answer, so each check gives up on its own.
+const HEALTH_TIMEOUT_MS = 5000;
+
+/** True if GET /health answers with a 2xx within HEALTH_TIMEOUT_MS, false otherwise (never throws). */
+export async function checkHealth(signal?: AbortSignal): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
+  if (signal?.aborted) controller.abort();
+
+  try {
+    const res = await fetch(`${API_URL}/health`, { signal: controller.signal, cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Upload an image to the backend and return the analysis. Throws ApiError with a user-presentable message. */
 export async function predict(file: File, signal?: AbortSignal): Promise<PredictResult> {
   const form = new FormData();
